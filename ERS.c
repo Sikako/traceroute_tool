@@ -14,6 +14,7 @@
 #include <math.h>
 #include <netinet/ip_icmp.h>
 #include <netdb.h>
+#include <time.h>
 
 #define IP_HDRLEN 20
 #define ICMP_HDRLEN 8
@@ -47,6 +48,7 @@ unsigned short checksum(unsigned short *addr,int len){
     return result;
 }
 
+// header seting
 void set_ip_h(struct ip* ip_hdr,struct sockaddr src,char *dst ,int ttl){
     //struct hostent *src_hp,*dst_hp;
     struct in_addr dst_ip,src_ip;
@@ -59,25 +61,34 @@ void set_ip_h(struct ip* ip_hdr,struct sockaddr src,char *dst ,int ttl){
     ip_hdr->ip_v = 4;
     ip_hdr->ip_hl = 5;
     ip_hdr->ip_len = IP_HDRLEN+ICMP_HDRLEN; //not sure
-    ip_hdr->ip_id = htons(321);
+    ip_hdr->ip_id = rand()%256;
     ip_hdr->ip_off = htons(0);
     ip_hdr->ip_ttl = (unsigned char)ttl;
     ip_hdr->ip_p = IPPROTO_ICMP;
     ip_hdr->ip_sum = 0;
 }
-void set_icmp_h(struct icmp* icmp_hdr){
+void set_icmp_h(struct icmp* icmp_hdr, int16_t seq){
+
     icmp_hdr->icmp_type = ICMP_ECHO;
     icmp_hdr->icmp_code = 0;
-    icmp_hdr->icmp_id = 123;
-    icmp_hdr->icmp_seq = 0;
+    icmp_hdr->icmp_id = rand()%256;
+    icmp_hdr->icmp_seq = htons(seq);
+}
+
+// Endianness conversion
+uint16_t Reverse16(uint16_t value)
+{
+    return (((value & 0x00FF) << 8) |
+            ((value & 0xFF00) >> 8));
 }
 
 int main(int argc ,char* argv[]){
-    int sockfd = 0, sockfd_recv = 0;
+    srand( time(NULL) );
+    int sockfd_send = 0, sockfd_recv = 0;
     int ttl = 0;
     int send_result=0,recv_result=0;
 
-    char send_buf[100],recv_buf[100];
+    char send_buf[84],recv_buf[100];
     struct ip *ip_hdr;
     struct icmp *icmp_hdr;
     struct sockaddr_in sa;
@@ -99,10 +110,10 @@ int main(int argc ,char* argv[]){
         exit(1);
     }
     
-    if((sockfd = socket(AF_INET, SOCK_RAW ,IPPROTO_RAW)) < 0)
+    if((sockfd_send = socket(AF_INET, SOCK_RAW ,IPPROTO_RAW)) < 0)
 	{
 		perror("Socket Error\n");
-		exit(sockfd);
+		exit(sockfd_send);
 	}
     if((sockfd_recv = socket(PF_PACKET, SOCK_RAW ,htons(ETH_P_ALL))) < 0)
 	{
@@ -116,7 +127,7 @@ int main(int argc ,char* argv[]){
 
     // Get IP from interface name
 	strncpy(req.ifr_name, DEVICE_NAME,IF_NAMESIZE-1);
-	if(ioctl(sockfd,SIOCGIFADDR,&req) < 0){
+	if(ioctl(sockfd_send,SIOCGIFADDR,&req) < 0){
 		perror("ioctl\n");
 	}
 
@@ -142,11 +153,12 @@ int main(int argc ,char* argv[]){
         // fill packet
         set_ip_h(ip_hdr,req.ifr_addr,obj_ip,i);
         ip_hdr->ip_sum = checksum((unsigned short *)send_buf, ip_hdr->ip_hl);
-        set_icmp_h(icmp_hdr);
+        set_icmp_h(icmp_hdr, i);
         icmp_hdr->icmp_cksum = checksum((unsigned short *)icmp_hdr,sizeof(send_buf)-sizeof(struct ip));
-        //printf("header length : %d\n",ip_hdr->ip_hl);
+
+        printf("header length : %d\n",ip_hdr->ip_hl);
         // send 
-        if(send_result = sendto(sockfd,send_buf,sizeof(send_buf),0,(struct sockaddr *)&sa,sizeof(struct sockaddr_in))<0){
+        if(send_result = sendto(sockfd_send,send_buf,sizeof(send_buf),0,(struct sockaddr *)&sa,sizeof(struct sockaddr_in))<0){
             perror("send packet failed\n");
         }
         int count = 0;
