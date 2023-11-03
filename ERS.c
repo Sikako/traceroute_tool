@@ -1,7 +1,7 @@
 #include <netinet/if_ether.h>
 #include <netinet/ip_icmp.h>
 #include <netinet/ip.h>
-// #include <netinet/in.h>
+#include <netinet/in.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/ioctl.h>
@@ -25,7 +25,7 @@
 
 #define BUFFER_SIZE 512
 #define DEVICE_NAME "ens33"
-#define DEBUG 0
+#define DEBUG 0 
 
 
 
@@ -48,9 +48,8 @@ int main(int argc ,char** argv){
     char src_ip[16];    // icmp reply 的 來源IP
     char *my_ip, *obj_ip=argv[2];
 
-    printf("address of buffer_send: %p\n", buf_send);
     struct ip *ip_hdr;
-    struct icmp *icmp_hdr = (struct icmp *)buf_send;
+    struct icmp *icmp_hdr;
     struct sockaddr_in sa;
     struct in_addr dst,*src;
     struct ifreq ifr;
@@ -63,10 +62,10 @@ int main(int argc ,char** argv){
 
 
     //check if root
-	if(geteuid() != 0){
-		printf("%s\n","ERROR: You must be root to use this tool!");
-		exit(1);
-	}
+    if(geteuid() != 0){
+	printf("%s\n","ERROR: You must be root to use this tool!");
+	exit(1);
+    }
 
     // 判斷格式正確
     if(argc!=3){
@@ -114,10 +113,6 @@ int main(int argc ,char** argv){
     if(DEBUG){
         printf("src IP: %s\n", my_ip);
         printf("obj IP: %s\n", obj_ip);
-
-        // printf("address of ip_hdr: %p\n", ip_hdr);
-        printf("address of icmp_hdr: %p\n", icmp_hdr);
-        printf("address of buffer_send: %p\n", buf_send);
     }
 
     sa.sin_family = AF_INET;
@@ -129,12 +124,14 @@ int main(int argc ,char** argv){
     printf("traceroute to %s, %s hops max, 84 byte packets\n", obj_ip, argv[1]);
     for(int i=1;i<=ttl;i++){
         memset(buf_send,'\0',sizeof(buf_send));
-        // if(DEBUG) print_buffer(buf_send);
-
+        if(DEBUG){
+	    printf("init buf_send\n"); 
+  	    print_buffer(buf_send);
+	}
+        icmp_hdr = (struct icmp *)buf_send;
         // fill packet
         // set_ip_hdr(ip_hdr, obj_ip, i);
         // ip_hdr->ip_sum = checksum((uint16_t *)ip_hdr, IP_HDRLEN);
-        if(DEBUG) print_buffer(buf_send);
         set_icmp_hdr(icmp_hdr, i);
         icmp_hdr->icmp_cksum = checksum((uint16_t *)icmp_hdr, ICMP_HDRLEN);
 
@@ -153,32 +150,43 @@ int main(int argc ,char** argv){
         if((result_send = sendto(sockfd_send, buf_send, 8, 0, (struct sockaddr *)&sa, sizeof(sa))) < 0){
             perror("send packet failed");
         }
-        printf("send\n");
-        if(DEBUG) printf("address of buffer_send: %p\n", buf_send);
-        if(DEBUG) print_buffer(buf_send);
+        if(DEBUG){
+	    printf("seted buf_send\n");
+	    print_buffer(buf_send);
+	}
 
         int count = 0;
 
         // recv
         while(1){
             memset(buf_recv,'\0',sizeof(buf_recv));
-            //printf("%d \n",count);
-            if((result_recv = recvfrom(sockfd_recv, buf_recv, sizeof(buf_recv), 0, NULL, NULL)) <= 0){
+	    if(DEBUG){
+		printf("init buf_recv:\n");
+		print_buffer(buf_recv);
+	    }
+
+            if((result_recv = recv(sockfd_recv, buf_recv, sizeof(buf_recv), 0)) <= 0){
                 perror("recvfrom");
                 exit(1);
-            }
-            printf("recv: %d bytes\n", result_recv);
+           }
 
 
-            ip_hdr =(struct ip *)(buf_recv + Ether_HDRLEN);
+            ip_hdr = (struct ip *)(buf_recv);
             struct in_addr inaddr = ip_hdr->ip_src;
             inet_ntop(AF_INET,&inaddr,src_ip,INET_ADDRSTRLEN);
             // if(count >10){
             //     printf("%d\t...\n",i);
             //     break;
             // }
-            if(ip_hdr->ip_p==IPPROTO_ICMP && strcmp(src_ip,my_ip) != 0){
-                icmp_hdr = (struct icmp *)(buf_recv + Ether_HDRLEN + IP_HDRLEN);
+	    if(DEBUG){
+		printf("src_ip: %s\n", src_ip);
+		printf("seted buf_recv:\n");
+	        print_buffer(buf_recv);
+                printf("%d\n", ip_hdr->ip_p);
+	    }
+
+            if(ip_hdr->ip_p == IPPROTO_ICMP && strcmp(src_ip,my_ip) != 0){
+                icmp_hdr = (struct icmp *)(buf_recv + IP_HDRLEN);
                 // time exceed
                 if(icmp_hdr->icmp_type == ICMP_TIMXCEED){
                     printf("%d\t%s  (ttl exceeded)\n",i,src_ip);
